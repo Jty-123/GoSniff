@@ -33,7 +33,8 @@ func main() {
 	stratButton := widget.NewButton("start listen", func() {
 		log.Println("Start listen.....")
 		listenChannel := make(chan sniffer.SniffPacket)
-		go sniffer.Sniff(SelectedDeviceName, listenChannel)
+		stopChannel := make(chan bool)
+		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel)
 
 		// gridContainer := container.New(layout.NewGridLayout(3),
 		// 	widget.NewLabel("Source"),
@@ -72,13 +73,19 @@ func main() {
 			detailWindow := myApp.NewWindow("Packet Detail")
 			detailWindow.Resize(fyne.NewSize(600, 400))
 			//text := canvas.NewText(showInfo, color.Black)
-			container := container.NewStack(widget.NewLabel(showInfo))
-			detailWindow.SetContent(container)
+			entry := widget.NewMultiLineEntry()
+			entry.SetText(showInfo)
+			// container := container.NewStack(text)
+			detailWindow.SetContent(entry)
 			detailWindow.Show()
 		}
 		// 创建一个顶层容器，将滚动容器放入其中
 		MaxList := container.NewStack(list)
-		container := container.NewBorder(nil, nil, nil, nil, MaxList)
+		// 停止抓包
+		Button := widget.NewButton("Stop", func() {
+			stopChannel <- false
+		})
+		container := container.NewBorder(nil, Button, nil, nil, MaxList)
 		listenWindow := myApp.NewWindow("Listening")
 		listenWindow.SetContent(container)
 		listenWindow.Resize(fyne.NewSize(600, 400))
@@ -86,12 +93,14 @@ func main() {
 		for {
 			select {
 			case packet := <-listenChannel:
-				str := "Src:" + packet.Source + "    " + "Dst:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
+				str := "Src:" + packet.Source + "  --->  " + "Dst:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
 				listData.Append(str)
 				packDetailData = append(packDetailData, packet)
-
+			case <-stopChannel:
+				break
 			}
 		}
+
 	})
 
 	mainWindow.SetContent(container.NewVBox(Tips, selectedInterface, stratButton))

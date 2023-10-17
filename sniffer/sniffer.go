@@ -3,7 +3,6 @@ package sniffer
 import (
 	"fmt"
 	"log"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -61,7 +60,7 @@ func GetAllDeviceName() []string {
 	return deviceNames
 }
 
-func Sniff(name string, ch chan SniffPacket) {
+func Sniff(name string, ch chan SniffPacket, stop chan bool) {
 	device = name
 	handle, err = pcap.OpenLive(device, snapshotLen, promiscuous, timeout)
 	if err != nil {
@@ -70,8 +69,13 @@ func Sniff(name string, ch chan SniffPacket) {
 	// pach := make(chan gopacket.Packet)
 	defer handle.Close()
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	for packet := range packetSource.Packets() {
-		ch <- DecodePacket(packet)
+	for {
+		select {
+		case packet := <-packetSource.Packets():
+			ch <- DecodePacket(packet)
+		case <-stop:
+			return
+		}
 	}
 }
 
@@ -88,6 +92,13 @@ func DecodePacket(packet gopacket.Packet) SniffPacket {
 			packetData.Source = ethernetPacket.SrcMAC.String()
 			packetData.Destination = ethernetPacket.DstMAC.String()
 			packetData.Protocol = linkLayer.LayerType().String()
+			// ARP协议
+			arpPacket := packet.Layer(layers.LayerTypeARP)
+			arp, _ := arpPacket.(*layers.ARP)
+			if arp != nil {
+				fmt.Println("ARP")
+				packetData.Protocol = "ARP"
+			}
 			packetData.Info = GetDetailInfo(packet, "link")
 			networkLayer := packet.NetworkLayer()
 			if networkLayer != nil {
@@ -256,17 +267,19 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 		// detailInfo.DestinationPort = tcp.DstPort.String()
 
 		applicationLayer := packet.ApplicationLayer()
-		reg := regexp.MustCompile(`(?s)(GET|POST) (.*?) HTTP.*Host: (.*?)\n`)
+		// reg := regexp.MustCompile(`(?s)(GET|POST) (.*?) HTTP.*Host: (.*?)\n`)
 		payload := string(applicationLayer.Payload())
-		result := reg.FindStringSubmatch(payload)
-		if len(result) == 4 {
-			strings.TrimSpace(result[2])
-			url := "http://" + strings.TrimSpace(result[3]) + strings.TrimSpace(result[2])
-			detailInfo.Detail += "url:  " + url + "\n"
-			detailInfo.Detail += "host:  " + result[3] + "\n"
-			// fmt.Println("url:", url)
-			// fmt.Println("host:", result[3])
-		}
+		detailInfo.Detail += payload
+		fmt.Println(payload)
+		// result := reg.FindStringSubmatch(payload)
+		// if len(result) == 4 {
+		// 	strings.TrimSpace(result[2])
+		// 	url := "http://" + strings.TrimSpace(result[3]) + strings.TrimSpace(result[2])
+		// 	detailInfo.Detail += "url:  " + url + "\n"
+		// 	detailInfo.Detail += "host:  " + result[3] + "\n"
+		// 	// fmt.Println("url:", url)
+		// 	// fmt.Println("host:", result[3])
+		// }
 	}
 	return detailInfo
 }
