@@ -1,6 +1,7 @@
 package sniffer
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
 	"strconv"
@@ -45,6 +46,20 @@ type SniffPacket struct {
 	Info        DetailPacketInfo
 }
 
+func BytesToMACString(b []byte) string {
+	macString := hex.EncodeToString(b)
+	// len := len(macString)
+	// fmt.Println(macString)
+	for i := 2; i < len(macString); i += 3 {
+		macString = macString[:i] + ":" + macString[i:]
+	}
+	// fmt.Println(macString)
+	return macString
+}
+func BytesToIPString(b []byte) string {
+	ipString := fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
+	return ipString
+}
 func GetAllDeviceName() []string {
 	// 得到所有的(网络)设备
 	devices, err := pcap.FindAllDevs()
@@ -98,6 +113,10 @@ func DecodePacket(packet gopacket.Packet) SniffPacket {
 			if arp != nil {
 				fmt.Println("ARP")
 				packetData.Protocol = "ARP"
+				packetData.Source = BytesToMACString(arp.SourceHwAddress)
+				packetData.Destination = BytesToMACString(arp.DstHwAddress)
+				packetData.Info = GetDetailInfo(packet, "link")
+				return packetData
 			}
 			packetData.Info = GetDetailInfo(packet, "link")
 			networkLayer := packet.NetworkLayer()
@@ -157,6 +176,14 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 		ethernetPacket, _ := ethernetLayer.(*layers.Ethernet)
 		detailInfo.SourceMac = ethernetPacket.SrcMAC.String()
 		detailInfo.DestinationMac = ethernetPacket.DstMAC.String()
+		arpPacket := packet.Layer(layers.LayerTypeARP)
+		arp, _ := arpPacket.(*layers.ARP)
+		if arp != nil {
+			detailInfo.SourceIP = BytesToIPString(arp.SourceProtAddress)
+			detailInfo.DestinationIP = BytesToIPString(arp.DstProtAddress)
+			detailInfo.Detail += "AddrType:  " + arp.AddrType.String() + "\n"
+			detailInfo.Detail += "Protocol:  " + arp.Protocol.String() + "\n"
+		}
 		detailInfo.DataLen = strconv.FormatUint(uint64(ethernetPacket.Length), 10)
 		return detailInfo
 	}
@@ -213,7 +240,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			payloadLength := len(tcp.Payload)
 			tcpHeaderLength := int(tcp.DataOffset) * 4 // DataOffset 表示 TCP 头的长度（单位是 32 位字）
 			totalLength := payloadLength + tcpHeaderLength
-			detailInfo.DataLen = strconv.FormatUint(uint64(totalLength), 10) + "\n"
+			detailInfo.DataLen = strconv.FormatUint(uint64(totalLength), 10)
 			detailInfo.Detail += "sequence:  " + strconv.FormatUint(uint64(tcp.Seq), 10) + "\n"
 			detailInfo.Detail += "ACK:  " + strconv.FormatUint(uint64(tcp.Ack), 10) + "\n"
 			detailInfo.Detail += "Data Offset:  " + strconv.FormatUint(uint64(tcp.DataOffset), 10) + "\n"
@@ -270,7 +297,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 		// reg := regexp.MustCompile(`(?s)(GET|POST) (.*?) HTTP.*Host: (.*?)\n`)
 		payload := string(applicationLayer.Payload())
 		detailInfo.Detail += payload
-		fmt.Println(payload)
+		// fmt.Println(payload)
 		// result := reg.FindStringSubmatch(payload)
 		// if len(result) == 4 {
 		// 	strings.TrimSpace(result[2])

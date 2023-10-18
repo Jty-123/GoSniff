@@ -14,6 +14,7 @@ import (
 var SelectedDeviceName string
 
 func main() {
+
 	myApp := app.New()
 	mainWindow := myApp.NewWindow("main")
 
@@ -44,7 +45,7 @@ func main() {
 		var packetData = []string{}
 		var packDetailData = []sniffer.SniffPacket{}
 		listData := binding.BindStringList(&packetData)
-		listData.Set(packetData)
+		// listData.Set(packetData)
 		list := widget.NewListWithData(listData,
 			func() fyne.CanvasObject {
 				return widget.NewLabel("")
@@ -84,6 +85,7 @@ func main() {
 		// 停止抓包
 		Button := widget.NewButton("Stop", func() {
 			stopChannel <- false
+			log.Println("Stop Listen!")
 		})
 		container := container.NewBorder(nil, Button, nil, nil, MaxList)
 		listenWindow := myApp.NewWindow("Listening")
@@ -97,7 +99,7 @@ func main() {
 				listData.Append(str)
 				packDetailData = append(packDetailData, packet)
 			case <-stopChannel:
-				break
+				return
 			}
 		}
 
