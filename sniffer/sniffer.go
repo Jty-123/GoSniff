@@ -89,6 +89,7 @@ func Sniff(name string, ch chan SniffPacket, stop chan bool) {
 		case packet := <-packetSource.Packets():
 			ch <- DecodePacket(packet)
 		case <-stop:
+			stop <- false
 			return
 		}
 	}
