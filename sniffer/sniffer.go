@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/google/gopacket/pcapgo"
 )
 
 var (
@@ -75,7 +77,27 @@ func GetAllDeviceName() []string {
 	return deviceNames
 }
 
-func Sniff(name string, ch chan SniffPacket, stop chan bool) {
+func savePcapFile(saveList []gopacket.Packet) {
+	// 保存抓取的数据包
+
+	f, err := os.Create("save.pcap")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	pcapw := pcapgo.NewWriter(f)
+	if err := pcapw.WriteFileHeader(1600, layers.LinkTypeEthernet); err != nil {
+		log.Fatalf("WriteFileHeader: %v", err)
+	} // 添加 pcap 文件头
+	for _, packet := range saveList {
+		if err := pcapw.WritePacket(packet.Metadata().CaptureInfo, packet.Data()); err != nil {
+			log.Fatalf("pcap.WritePacket(): %v", err)
+		}
+	}
+
+}
+
+func Sniff(name string, ch chan SniffPacket, stop chan int) {
 	device = name
 	handle, err = pcap.OpenLive(device, snapshotLen, promiscuous, timeout)
 	if err != nil {
@@ -84,13 +106,18 @@ func Sniff(name string, ch chan SniffPacket, stop chan bool) {
 	// pach := make(chan gopacket.Packet)
 	defer handle.Close()
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	var saveList []gopacket.Packet
 	for {
 		select {
 		case packet := <-packetSource.Packets():
 			ch <- DecodePacket(packet)
-		case <-stop:
-			stop <- false
-			return
+			saveList = append(saveList, packet)
+		case sig := <-stop:
+			if sig == 1 {
+				stop <- 1
+			} else if sig == 2 {
+				savePcapFile(saveList)
+			}
 		}
 	}
 }

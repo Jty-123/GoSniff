@@ -14,7 +14,7 @@ import (
 
 var SelectedDeviceName string
 
-func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacket, stopChannel chan bool) {
+func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacket, stopChannel chan int) {
 
 	var packetData = []string{}
 	var packDetailData = []sniffer.SniffPacket{}
@@ -54,14 +54,23 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		detailWindow.SetContent(entry)
 		detailWindow.Show()
 	}
+	isStop := false // 是否停止
 	// 创建一个顶层容器，将滚动容器放入其中
 	MaxList := container.NewStack(list)
 	// 停止抓包
-	Button := widget.NewButton("Stop", func() {
-		stopChannel <- false
+	StopButton := widget.NewButton("Stop", func() {
+		stopChannel <- 1
 		log.Println("Stop Listen!")
 	})
-	container := container.NewBorder(nil, Button, nil, nil, MaxList)
+	SaveButton := widget.NewButton("Save", func() {
+		if isStop == false {
+			createTips(myApp)
+		}
+		stopChannel <- 2
+		log.Println("Saved!")
+	})
+	bottom := container.NewGridWithColumns(2, StopButton, SaveButton)
+	container := container.NewBorder(nil, bottom, nil, nil, MaxList)
 	listenWindow := myApp.NewWindow("Listening")
 	listenWindow.SetContent(container)
 	listenWindow.Resize(fyne.NewSize(600, 400))
@@ -69,17 +78,35 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 	for {
 		select {
 		case packet := <-listenChannel:
-			str := "Src:" + packet.Source + "  --->  " + "Dst:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
+			if isStop {
+				// fmt.Println("stop:", isStop)
+				continue
+			}
+			str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
 			fmt.Println("recv packet")
 			listData.Append(str)
 			packDetailData = append(packDetailData, packet)
-		case <-stopChannel:
-			fmt.Println("STOP!")
-			// close(listenChannel)
-			// fmt.Println("Channel Closed!")
-			return
+		case sig := <-stopChannel:
+			if sig == 1 {
+				fmt.Println("STOP")
+				isStop = true
+			} else {
+				fmt.Println("SAVE")
+			}
 		}
 	}
+}
+
+func createTips(myApp fyne.App) {
+	tipWindow := myApp.NewWindow("Packet Detail")
+	tipWindow.Resize(fyne.NewSize(200, 100))
+	tips := widget.NewLabel("Please stop before save")
+	botton := widget.NewButton("ok", func() {
+		tipWindow.Close()
+	})
+	container := container.NewVBox(tips, botton)
+	tipWindow.SetContent(container)
+	tipWindow.Show()
 }
 
 func main() {
@@ -103,7 +130,7 @@ func main() {
 	stratButton := widget.NewButton("start listen", func() {
 		log.Println("Start listen.....")
 		listenChannel := make(chan sniffer.SniffPacket)
-		stopChannel := make(chan bool)
+		stopChannel := make(chan int)
 		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel)
 		go CreateNewListenWindow(myApp, listenChannel, stopChannel)
 	})
