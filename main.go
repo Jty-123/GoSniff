@@ -2,7 +2,6 @@ package main
 
 import (
 	"GoSniff/sniffer"
-	"fmt"
 	"log"
 
 	"fyne.io/fyne/v2"
@@ -61,12 +60,12 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 	// 停止抓包
 	Button = widget.NewButton("Stop", func() {
 		if Button.Text == "Stop" {
-			Button.Text = "Start"
+			Button.SetText("Start")
 			stopChannel <- 1
 			isStop = true
 			log.Println("Stop Listen!")
 		} else {
-			Button.Text = "Stop"
+			Button.SetText("Stop")
 			stopChannel <- 0
 			isStop = false
 			log.Println("Start Listen!")
@@ -85,30 +84,25 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 	listenWindow := myApp.NewWindow("Listening")
 	listenWindow.SetOnClosed(func() {
 		stopChannel <- 3
-		log.Println("Close Listen!")
 	})
 	listenWindow.SetContent(container)
 	listenWindow.Resize(fyne.NewSize(600, 400))
 	listenWindow.Show()
-	for {
-		select {
-		case packet := <-listenChannel:
-			if isStop {
-				// fmt.Println("stop:", isStop)
-				continue
-			}
-			str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
-			// fmt.Println("recv packet")
-			listData.Append(str)
-			packDetailData = append(packDetailData, packet)
-		case sig := <-stopChannel:
-			if sig == 1 {
-				fmt.Println("STOP")
-			} else if sig == 2 {
-				fmt.Println("SAVE")
-			}
-		}
+	for packet := range listenChannel {
+		str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
+		// fmt.Println("recv packet")
+		listData.Append(str)
+		packDetailData = append(packDetailData, packet)
 	}
+	// for {
+	// 	select {
+	// 	case packet := <-listenChannel:
+	// 		str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
+	// 		// fmt.Println("recv packet")
+	// 		listData.Append(str)
+	// 		packDetailData = append(packDetailData, packet)
+	// 	}
+	// }
 }
 
 func createTips(myApp fyne.App, tipType int) {
@@ -165,8 +159,8 @@ func main() {
 		log.Println("Start listen.....")
 		listenChannel := make(chan sniffer.SniffPacket)
 		stopChannel := make(chan int)
-		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel, filterEntry.Text)
 		go CreateNewListenWindow(myApp, listenChannel, stopChannel)
+		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel, filterEntry.Text)
 	})
 
 	mainWindow.SetContent(container.NewVBox(Tips, filterEntry, selectedInterface, stratButton))
