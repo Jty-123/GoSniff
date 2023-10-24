@@ -57,21 +57,36 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 	isStop := false // 是否停止
 	// 创建一个顶层容器，将滚动容器放入其中
 	MaxList := container.NewStack(list)
+	var Button *widget.Button // 停止/开始按钮
 	// 停止抓包
-	StopButton := widget.NewButton("Stop", func() {
-		stopChannel <- 1
-		log.Println("Stop Listen!")
+	Button = widget.NewButton("Stop", func() {
+		if Button.Text == "Stop" {
+			Button.Text = "Start"
+			stopChannel <- 1
+			isStop = true
+			log.Println("Stop Listen!")
+		} else {
+			Button.Text = "Stop"
+			stopChannel <- 0
+			isStop = false
+			log.Println("Start Listen!")
+		}
 	})
 	SaveButton := widget.NewButton("Save", func() {
 		if isStop == false {
-			createTips(myApp)
+			createTips(myApp, 1)
+			return
 		}
 		stopChannel <- 2
 		log.Println("Saved!")
 	})
-	bottom := container.NewGridWithColumns(2, StopButton, SaveButton)
+	bottom := container.NewGridWithColumns(2, Button, SaveButton)
 	container := container.NewBorder(nil, bottom, nil, nil, MaxList)
 	listenWindow := myApp.NewWindow("Listening")
+	listenWindow.SetOnClosed(func() {
+		stopChannel <- 3
+		log.Println("Close Listen!")
+	})
 	listenWindow.SetContent(container)
 	listenWindow.Resize(fyne.NewSize(600, 400))
 	listenWindow.Show()
@@ -83,30 +98,46 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 				continue
 			}
 			str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
-			fmt.Println("recv packet")
+			// fmt.Println("recv packet")
 			listData.Append(str)
 			packDetailData = append(packDetailData, packet)
 		case sig := <-stopChannel:
 			if sig == 1 {
 				fmt.Println("STOP")
-				isStop = true
-			} else {
+			} else if sig == 2 {
 				fmt.Println("SAVE")
 			}
 		}
 	}
 }
 
-func createTips(myApp fyne.App) {
-	tipWindow := myApp.NewWindow("Packet Detail")
-	tipWindow.Resize(fyne.NewSize(200, 100))
-	tips := widget.NewLabel("Please stop before save")
-	botton := widget.NewButton("ok", func() {
-		tipWindow.Close()
-	})
-	container := container.NewVBox(tips, botton)
-	tipWindow.SetContent(container)
-	tipWindow.Show()
+func createTips(myApp fyne.App, tipType int) {
+	// tipType
+	// 1 提示在save前应该stop
+	// 2 提示BPF的语法出现错误
+	switch tipType {
+	case 1:
+		tipWindow := myApp.NewWindow("Warnning")
+		tipWindow.Resize(fyne.NewSize(200, 100))
+		tips := widget.NewLabel("Please stop before save")
+		botton := widget.NewButton("ok", func() {
+			tipWindow.Close()
+		})
+		container := container.NewVBox(tips, botton)
+		tipWindow.SetContent(container)
+		tipWindow.Show()
+	case 2:
+		tipWindow := myApp.NewWindow("Warnning")
+		tipWindow.Resize(fyne.NewSize(200, 100))
+		tips := widget.NewLabel("BPF syntax error")
+		botton := widget.NewButton("ok", func() {
+			tipWindow.Close()
+		})
+		container := container.NewVBox(tips, botton)
+		tipWindow.SetContent(container)
+		tipWindow.Show()
+	}
+
 }
 
 func main() {
@@ -122,6 +153,9 @@ func main() {
 
 	Tips := widget.NewLabel("Choose the interface to listen:")
 
+	filterEntry := widget.NewEntry()
+	filterEntry.SetPlaceHolder("Input filter...")
+
 	selectedInterface := widget.NewSelect(devicesName, func(value string) {
 		SelectedDeviceName = value
 		log.Println("Select set to", value)
@@ -131,10 +165,10 @@ func main() {
 		log.Println("Start listen.....")
 		listenChannel := make(chan sniffer.SniffPacket)
 		stopChannel := make(chan int)
-		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel)
+		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel, filterEntry.Text)
 		go CreateNewListenWindow(myApp, listenChannel, stopChannel)
 	})
 
-	mainWindow.SetContent(container.NewVBox(Tips, selectedInterface, stratButton))
+	mainWindow.SetContent(container.NewVBox(Tips, filterEntry, selectedInterface, stratButton))
 	mainWindow.ShowAndRun()
 }

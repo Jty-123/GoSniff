@@ -50,12 +50,9 @@ type SniffPacket struct {
 
 func BytesToMACString(b []byte) string {
 	macString := hex.EncodeToString(b)
-	// len := len(macString)
-	// fmt.Println(macString)
 	for i := 2; i < len(macString); i += 3 {
 		macString = macString[:i] + ":" + macString[i:]
 	}
-	// fmt.Println(macString)
 	return macString
 }
 func BytesToIPString(b []byte) string {
@@ -97,29 +94,61 @@ func savePcapFile(saveList []gopacket.Packet) {
 
 }
 
-func Sniff(name string, ch chan SniffPacket, stop chan int) {
-	device = name
+func Sniff(name string, ch chan SniffPacket, stop chan int, filter string) {
+
+	var saveList []gopacket.Packet
+	recv := make(chan gopacket.Packet)
+	stopRecv := make(chan int)
+	go recvpacket(name, recv, stopRecv, filter)
+	for {
+		select {
+		case packet := <-recv:
+			ch <- DecodePacket(packet)
+			saveList = append(saveList, packet)
+		case signal := <-stop:
+			// 0 开始抓包
+			// 1 停止抓包
+			// 2 保存
+			// 3 窗口关闭
+			if signal == 0 {
+				go recvpacket(name, recv, stopRecv, filter)
+			} else if signal == 1 {
+				stopRecv <- 1
+			} else if signal == 2 {
+				savePcapFile(saveList)
+			} else if signal == 3 {
+				stopRecv <- 1
+			}
+
+		}
+	}
+}
+
+func recvpacket(device string, recv chan gopacket.Packet, stopRecv chan int, filter string) {
 	handle, err = pcap.OpenLive(device, snapshotLen, promiscuous, timeout)
 	if err != nil {
 		log.Fatal(err)
 	}
 	// pach := make(chan gopacket.Packet)
 	defer handle.Close()
+	// 检查过滤器语法
+	// _, err := handle.CompileBPFFilter(filter)
+	handle.SetBPFFilter(filter)
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	var saveList []gopacket.Packet
 	for {
 		select {
 		case packet := <-packetSource.Packets():
-			ch <- DecodePacket(packet)
-			saveList = append(saveList, packet)
-		case sig := <-stop:
-			if sig == 1 {
-				stop <- 1
-			} else if sig == 2 {
-				savePcapFile(saveList)
+			fmt.Println("recv Packet!")
+			fmt.Println(packet)
+			if packet != nil {
+				recv <- packet
 			}
+		case <-stopRecv:
+			fmt.Println("stop recv packet")
+			return
 		}
 	}
+
 }
 
 func DecodePacket(packet gopacket.Packet) SniffPacket {
