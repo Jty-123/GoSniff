@@ -1,7 +1,6 @@
 package sniffer
 
 import (
-	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -17,7 +16,7 @@ import (
 
 var (
 	device      string = "eth0"
-	snapshotLen int32  = 1024
+	snapshotLen int32  = 1600
 	promiscuous bool   = false
 	err         error
 	timeout     time.Duration = 1 * time.Second
@@ -33,8 +32,10 @@ type DetailPacketInfo struct {
 	DestinationIP   string
 	SourcePort      string
 	DestinationPort string
-	DataLen         string
+	Size            string
 	Detail          string
+	BinaryHex       string
+	AsciiText       string
 }
 
 type SniffPacket struct {
@@ -42,23 +43,13 @@ type SniffPacket struct {
 	// DestinationIP  string
 	// SourceMac      string
 	// DestinationMac string
+	Time        string
 	Source      string
 	Destination string
 	Protocol    string
 	Info        DetailPacketInfo
 }
 
-func BytesToMACString(b []byte) string {
-	macString := hex.EncodeToString(b)
-	for i := 2; i < len(macString); i += 3 {
-		macString = macString[:i] + ":" + macString[i:]
-	}
-	return macString
-}
-func BytesToIPString(b []byte) string {
-	ipString := fmt.Sprintf("%d.%d.%d.%d", b[0], b[1], b[2], b[3])
-	return ipString
-}
 func GetAllDeviceName() []string {
 	// 得到所有的(网络)设备
 	devices, err := pcap.FindAllDevs()
@@ -138,8 +129,8 @@ func recvpacket(device string, recv chan gopacket.Packet, stopRecv chan int, fil
 	for {
 		select {
 		case packet := <-packetSource.Packets():
-			fmt.Println("recv Packet!")
-			fmt.Println(packet)
+			//fmt.Println("recv Packet!")
+			//fmt.Println(packet)
 			if packet != nil {
 				recv <- packet
 			}
@@ -156,6 +147,8 @@ func DecodePacket(packet gopacket.Packet) SniffPacket {
 	// 逐层解析 数据链路层->应用层
 	var packetData SniffPacket
 	// Let's see if the packet is an ethernet packet
+	// fmt.Println(BytesToHex(packet.Data()))
+	packetData.Time = packet.Metadata().CaptureInfo.Timestamp.Format("2006-01-02 15:04:05")
 	linkLayer := packet.LinkLayer()
 	if linkLayer != nil {
 		ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
@@ -168,7 +161,6 @@ func DecodePacket(packet gopacket.Packet) SniffPacket {
 			arpPacket := packet.Layer(layers.LayerTypeARP)
 			arp, _ := arpPacket.(*layers.ARP)
 			if arp != nil {
-				fmt.Println("ARP")
 				packetData.Protocol = "ARP"
 				packetData.Source = BytesToMACString(arp.SourceHwAddress)
 				packetData.Destination = BytesToMACString(arp.DstHwAddress)
@@ -228,6 +220,9 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 	// transport 传输层
 	// application 应用层
 	var detailInfo DetailPacketInfo
+	detailInfo.Size = strconv.Itoa(packet.Metadata().CaptureInfo.Length)
+	detailInfo.BinaryHex = BytesToHex(packet.Data())
+	detailInfo.AsciiText = BytesToAscii(packet.Data())
 	if layer == "link" {
 		ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
 		ethernetPacket, _ := ethernetLayer.(*layers.Ethernet)
@@ -241,7 +236,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			detailInfo.Detail += "AddrType:  " + arp.AddrType.String() + "\n"
 			detailInfo.Detail += "Protocol:  " + arp.Protocol.String() + "\n"
 		}
-		detailInfo.DataLen = strconv.FormatUint(uint64(ethernetPacket.Length), 10)
+		// detailInfo.Size = strconv.FormatUint(uint64(ethernetPacket.Length), 10)
 		return detailInfo
 	}
 	if layer == "network" {
@@ -255,7 +250,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			detailInfo.SourceIP = ip.SrcIP.String()
 			detailInfo.DestinationIP = ip.DstIP.String()
 			// 添加IP头相关信息
-			detailInfo.DataLen = strconv.FormatUint(uint64(ip.Length), 10)
+			//detailInfo.Size = strconv.FormatUint(uint64(ip.Length), 10)
 			detailInfo.Detail += "IHL:  " + strconv.FormatUint(uint64(ip.IHL), 10) + "\n"
 			detailInfo.Detail += "TOS:  " + strconv.FormatUint(uint64(ip.TOS), 10) + "\n"
 			// fmt.Println(ip.TOS)
@@ -272,7 +267,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			ip, _ := ipv6Layer.(*layers.IPv6)
 			detailInfo.SourceIP = ip.SrcIP.String()
 			detailInfo.DestinationIP = ip.DstIP.String()
-			detailInfo.DataLen = strconv.FormatUint(uint64(ip.Length), 10)
+			// detailInfo.Size = strconv.FormatUint(uint64(ip.Length), 10)
 			// 添加IPv6头相关信息
 			detailInfo.Detail += "TrafficClass: " + strconv.FormatUint(uint64(ip.TrafficClass), 10) + "\n"
 			detailInfo.Detail += "FlowLabel: " + strconv.FormatUint(uint64(ip.FlowLabel), 10) + "\n"
@@ -294,10 +289,10 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			tcp, _ := tcpLayer.(*layers.TCP)
 			detailInfo.SourcePort = tcp.SrcPort.String()
 			detailInfo.DestinationPort = tcp.DstPort.String()
-			payloadLength := len(tcp.Payload)
-			tcpHeaderLength := int(tcp.DataOffset) * 4 // DataOffset 表示 TCP 头的长度（单位是 32 位字）
-			totalLength := payloadLength + tcpHeaderLength
-			detailInfo.DataLen = strconv.FormatUint(uint64(totalLength), 10)
+			// payloadLength := len(tcp.Payload)
+			// tcpHeaderLength := int(tcp.DataOffset) * 4 // DataOffset 表示 TCP 头的长度（单位是 32 位字）
+			// // totalLength := payloadLength + tcpHeaderLength
+			// detailInfo.Size = strconv.FormatUint(uint64(totalLength), 10)
 			detailInfo.Detail += "sequence:  " + strconv.FormatUint(uint64(tcp.Seq), 10) + "\n"
 			detailInfo.Detail += "ACK:  " + strconv.FormatUint(uint64(tcp.Ack), 10) + "\n"
 			detailInfo.Detail += "Data Offset:  " + strconv.FormatUint(uint64(tcp.DataOffset), 10) + "\n"
@@ -329,7 +324,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			udp, _ := udpLayer.(*layers.UDP)
 			detailInfo.SourcePort = udp.DstPort.String()
 			detailInfo.DestinationPort = udp.DstPort.String()
-			detailInfo.DataLen = "Data Length:  " + strconv.FormatUint(uint64(udp.Length), 10)
+			// detailInfo.Size = "Data Length:  " + strconv.FormatUint(uint64(udp.Length), 10)
 			detailInfo.Detail += "Checksum:  " + strconv.FormatUint(uint64(udp.Checksum), 10) + "\n"
 			detailInfo.Detail += "Payload:  " + string(udp.Payload) + "\n"
 			// fmt.Println(string(udp.Payload))
