@@ -133,6 +133,10 @@ func main() {
 			front.CreateTips(myApp, 3)
 			return
 		}
+		if !sniffer.CheckBPFSyntax(SelectedDeviceName, filterEntry.Text) {
+			front.CreateTips(myApp, 2)
+			return
+		}
 		go CreateNewListenWindow(myApp, listenChannel, stopChannel)
 		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel, filterEntry.Text)
 	})

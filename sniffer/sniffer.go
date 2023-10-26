@@ -84,6 +84,16 @@ func savePcapFile(saveList []gopacket.Packet) {
 
 }
 
+func CheckBPFSyntax(device string, filter string) bool {
+	// 检查过滤器语法
+	handle, err = pcap.OpenLive(device, snapshotLen, promiscuous, timeout)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer handle.Close()
+	_, err := handle.CompileBPFFilter(filter)
+	return err == nil
+}
 func Sniff(name string, ch chan SniffPacket, stop chan int, filter string) {
 
 	var saveList []gopacket.Packet
@@ -121,8 +131,6 @@ func recvpacket(device string, recv chan gopacket.Packet, stopRecv chan int, fil
 	}
 	// pach := make(chan gopacket.Packet)
 	defer handle.Close()
-	// 检查过滤器语法
-	// _, err := handle.CompileBPFFilter(filter)
 	handle.SetBPFFilter(filter)
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for {
