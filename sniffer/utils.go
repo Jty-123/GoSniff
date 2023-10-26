@@ -3,6 +3,7 @@ package sniffer
 import (
 	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 func BytesToMACString(b []byte) string {
@@ -44,4 +45,9 @@ func BytesToAscii(b []byte) string {
 		}
 	}
 	return res
+}
+
+func GetFullPacketData(dump string) string {
+	idx := strings.Index(dump, "--- Layer 1 ---")
+	return dump[:idx]
 }

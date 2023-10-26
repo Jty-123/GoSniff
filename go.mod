@@ -12,6 +12,7 @@ require (
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/abadojack/whatlanggo v1.0.1 // indirect
 	github.com/fatih/color v1.15.0 // indirect
+	github.com/flopp/go-findfont v0.1.0 // indirect
 	github.com/jackmordaunt/icns v1.0.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect

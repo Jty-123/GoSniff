@@ -1,6 +1,7 @@
 package main
 
 import (
+	"GoSniff/front"
 	"GoSniff/sniffer"
 	"fmt"
 	"log"
@@ -11,8 +12,6 @@ import (
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/widget"
 )
-
-var SelectedDeviceName string
 
 func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacket, stopChannel chan int) {
 
@@ -26,7 +25,7 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		},
 		func(i binding.DataItem, o fyne.CanvasObject) {
 			o.(*widget.Label).Bind(i.(binding.String))
-			o.(*widget.Label).TextStyle = fyne.TextStyle{Bold: true}
+			o.(*widget.Label).TextStyle = fyne.TextStyle{Monospace: true, Bold: true}
 			// o.(*widget.Label).Alignment = fyne.TextAlignLeading
 			// o.(*widget.Label).Resize(fyne.NewSize(1000, o.MinSize().Height))
 		})
@@ -52,18 +51,7 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		}
 		showInfo += "Data length:  " + info.Size + " Bytes \n"
 		showInfo += "Details:  \n" + info.Detail
-		detailWindow := myApp.NewWindow("Packet Detail")
-		detailWindow.Resize(fyne.NewSize(600, 600))
-		//text := canvas.NewText(showInfo, color.Black)
-		entryInfo := widget.NewMultiLineEntry()
-		entryBinary := widget.NewMultiLineEntry()
-		entryAscii := widget.NewMultiLineEntry()
-		entryInfo.SetText(showInfo)
-		entryBinary.SetText(info.BinaryHex)
-		entryAscii.SetText(info.AsciiText)
-		buttom := container.NewGridWithColumns(2, entryBinary, entryAscii)
-		container := container.NewGridWithRows(2, entryInfo, buttom)
-		detailWindow.SetContent(container)
+		detailWindow := front.CreateDetailWindow(myApp, showInfo, info.Dump)
 		detailWindow.Show()
 		detailWindow.SetOnClosed(func() {
 			list.Unselect(id)
@@ -88,8 +76,8 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		}
 	})
 	SaveButton := widget.NewButton("Save", func() {
-		if isStop == false {
-			createTips(myApp, 1)
+		if !isStop {
+			front.CreateTips(myApp, 1)
 			return
 		}
 		stopChannel <- 2
@@ -102,87 +90,52 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		stopChannel <- 3
 	})
 	listenWindow.SetContent(container)
-	listenWindow.Resize(fyne.NewSize(700, 400))
+	listenWindow.Resize(fyne.NewSize(1000, 600))
 	listenWindow.Show()
-	str := fmt.Sprintf("%-10s%-50s%-50s%-30s%-15s", "No.", "Time", "Source", "Destination", "Protocol")
+	str := fmt.Sprintf("%-5s%-30s%-30s%-30s%-10s", "No.", "Time", "Source", "Destination", "Protocol")
 	listData.Append(str)
 	for packet := range listenChannel {
 		No := len(packDetailData) + 1
 		packDetailData = append(packDetailData, packet)
-		str := fmt.Sprintf("%-10d%-35s%-45s%-30s%-15s", No, packet.Time, packet.Source, packet.Destination, packet.Protocol)
+		str := fmt.Sprintf("%-5d%-30s%-30s%-30s%-10s", No, packet.Time, packet.Source, packet.Destination, packet.Protocol)
 		// str := "Time\t\t" + packet.Source + "\t\t" + packet.Destination + "\t\t" + packet.Protocol
 		// fmt.Println("recv packet")
 		listData.Append(str)
 	}
-	// for {
-	// 	select {
-	// 	case packet := <-listenChannel:
-	// 		str := "Source:" + packet.Source + "  --->  " + "Destination:" + packet.Destination + "    " + "Protocol:" + packet.Protocol
-	// 		// fmt.Println("recv packet")
-	// 		listData.Append(str)
-	// 		packDetailData = append(packDetailData, packet)
-	// 	}
-	// }
-}
-
-func createTips(myApp fyne.App, tipType int) {
-	// tipType
-	// 1 提示在save前应该stop
-	// 2 提示BPF的语法出现错误
-	switch tipType {
-	case 1:
-		tipWindow := myApp.NewWindow("Warnning")
-		tipWindow.Resize(fyne.NewSize(200, 100))
-		tips := widget.NewLabel("Please stop before save")
-		botton := widget.NewButton("ok", func() {
-			tipWindow.Close()
-		})
-		container := container.NewVBox(tips, botton)
-		tipWindow.SetContent(container)
-		tipWindow.Show()
-	case 2:
-		tipWindow := myApp.NewWindow("Warnning")
-		tipWindow.Resize(fyne.NewSize(200, 100))
-		tips := widget.NewLabel("BPF syntax error")
-		botton := widget.NewButton("ok", func() {
-			tipWindow.Close()
-		})
-		container := container.NewVBox(tips, botton)
-		tipWindow.SetContent(container)
-		tipWindow.Show()
-	}
-
 }
 
 func main() {
 
 	myApp := app.New()
-	mainWindow := myApp.NewWindow("main")
-
+	mainWindow := myApp.NewWindow("主菜单")
+	// myApp.Settings().SetTheme(&front.MyTheme{})
 	mainWindow.Resize(fyne.NewSize(400, 300))
 	log.Println("app created......")
 	log.Println("app running......")
 
 	devicesName := sniffer.GetAllDeviceName()
 
-	Tips := widget.NewLabel("Choose the interface to listen:")
+	Tips := widget.NewLabel("Choose an interface to listen:")
 
 	filterEntry := widget.NewEntry()
 	filterEntry.SetPlaceHolder("Input filter...")
-
+	SelectedDeviceName := ""
 	selectedInterface := widget.NewSelect(devicesName, func(value string) {
 		SelectedDeviceName = value
 		log.Println("Select set to", value)
 	})
 
-	stratButton := widget.NewButton("start listen", func() {
+	startButton := widget.NewButton("start listen", func() {
 		log.Println("Start listen.....")
 		listenChannel := make(chan sniffer.SniffPacket)
 		stopChannel := make(chan int)
+		if SelectedDeviceName == "" {
+			front.CreateTips(myApp, 3)
+			return
+		}
 		go CreateNewListenWindow(myApp, listenChannel, stopChannel)
 		go sniffer.Sniff(SelectedDeviceName, listenChannel, stopChannel, filterEntry.Text)
 	})
-
-	mainWindow.SetContent(container.NewVBox(Tips, filterEntry, selectedInterface, stratButton))
+	mainWindow.SetContent(container.NewVBox(Tips, filterEntry, selectedInterface, startButton))
 	mainWindow.ShowAndRun()
 }

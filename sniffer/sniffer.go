@@ -34,8 +34,7 @@ type DetailPacketInfo struct {
 	DestinationPort string
 	Size            string
 	Detail          string
-	BinaryHex       string
-	AsciiText       string
+	Dump            string
 }
 
 type SniffPacket struct {
@@ -94,7 +93,7 @@ func Sniff(name string, ch chan SniffPacket, stop chan int, filter string) {
 	for {
 		select {
 		case packet := <-recv:
-			ch <- DecodePacket(packet)
+			ch <- parsePacket(packet)
 			saveList = append(saveList, packet)
 		case signal := <-stop:
 			// 0 开始抓包
@@ -142,75 +141,99 @@ func recvpacket(device string, recv chan gopacket.Packet, stopRecv chan int, fil
 
 }
 
-func DecodePacket(packet gopacket.Packet) SniffPacket {
+func parsePacket(packet gopacket.Packet) SniffPacket {
+	var res SniffPacket
+	allLayers := packet.Layers()
+	// 获取捕获时间
+	res.parseTime(packet)
+	// 解析数据包的协议
+	res.parseProtocol(packet, allLayers)
+	//解析目的地和到达地址
+	res.parseAddress(packet, allLayers)
+	//解析展示详细信息
+	res.parseShowInfo(packet, allLayers)
+	return res
+}
 
-	// 逐层解析 数据链路层->应用层
-	var packetData SniffPacket
-	// Let's see if the packet is an ethernet packet
-	// fmt.Println(BytesToHex(packet.Data()))
-	packetData.Time = packet.Metadata().CaptureInfo.Timestamp.Format("2006-01-02 15:04:05")
-	linkLayer := packet.LinkLayer()
-	if linkLayer != nil {
-		ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
-		if ethernetLayer != nil {
+func (s *SniffPacket) parseTime(packet gopacket.Packet) {
+	// 获取捕获时间
+	s.Time = packet.Metadata().Timestamp.Format("2006-01-02 15:04:05")
+}
+
+func (s *SniffPacket) parseProtocol(packet gopacket.Packet, allLayers []gopacket.Layer) {
+	str := allLayers[len(allLayers)-1].LayerType().String()
+	// 当数据包有Payload时，检查是否为应用层
+	if str == "Payload" {
+		if checkHttp(packet) {
+			s.Protocol = "HTTP"
+		} else {
+			s.Protocol = allLayers[len(allLayers)-2].LayerType().String()
+		}
+	} else {
+		s.Protocol = str
+	}
+
+}
+
+func (s *SniffPacket) parseAddress(packet gopacket.Packet, allLayers []gopacket.Layer) {
+	// 解析目的地和到达地址
+	for i := 0; i < len(allLayers); i++ {
+		switch allLayers[i].LayerType() {
+		case layers.LayerTypeEthernet:
+			ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
 			ethernetPacket, _ := ethernetLayer.(*layers.Ethernet)
-			packetData.Source = ethernetPacket.SrcMAC.String()
-			packetData.Destination = ethernetPacket.DstMAC.String()
-			packetData.Protocol = linkLayer.LayerType().String()
-			// ARP协议
-			arpPacket := packet.Layer(layers.LayerTypeARP)
-			arp, _ := arpPacket.(*layers.ARP)
-			if arp != nil {
-				packetData.Protocol = "ARP"
-				packetData.Source = BytesToMACString(arp.SourceHwAddress)
-				packetData.Destination = BytesToMACString(arp.DstHwAddress)
-				packetData.Info = GetDetailInfo(packet, "link")
-				return packetData
-			}
-			packetData.Info = GetDetailInfo(packet, "link")
-			networkLayer := packet.NetworkLayer()
-			if networkLayer != nil {
-				ipv4Layer := packet.Layer(layers.LayerTypeIPv4)
-				if ipv4Layer != nil {
-					ip, _ := ipv4Layer.(*layers.IPv4)
-					packetData.Source = ip.SrcIP.String()
-					packetData.Destination = ip.DstIP.String()
-					packetData.Protocol = ip.Protocol.String()
-					// fmt.Println("ip.Protocol:", ip.Protocol.String())
-				}
-				ipv6Layer := packet.Layer(layers.LayerTypeIPv6)
-				if ipv6Layer != nil {
-					ip, _ := ipv6Layer.(*layers.IPv6)
-					packetData.Source = ip.SrcIP.String()
-					packetData.Destination = ip.DstIP.String()
-					packetData.Protocol = ip.NextHeader.String()
-				}
-				packetData.Info = GetDetailInfo(packet, "network")
-				transportLayer := packet.TransportLayer()
-				if transportLayer != nil {
-					packetData.Info = GetDetailInfo(packet, "transport")
-				}
-				applicationLayer := packet.ApplicationLayer()
-				if applicationLayer != nil {
-					// packetData.Info = GetDetailInfo(packet, "application")
-					if strings.Contains(string(applicationLayer.Payload()), "HTTP") {
-						packetData.Protocol = "HTTP"
-						packetData.Info = GetDetailInfo(packet, "application")
-					}
-					// to do
-					return packetData
-					// fmt.Println(packetData.Source, " ", packetData.Destination, " ", packetData.Protocol)
-				} else {
-					return packetData
-					// fmt.Println(packetData.Source, " ", packetData.Destination, " ", packetData.Protocol)
-				}
-			} else {
-				return packetData
-				// fmt.Println(packetData.Source, " ", packetData.Destination, " ", packetData.Protocol)
-			}
+			s.Source = ethernetPacket.SrcMAC.String()
+			s.Destination = ethernetPacket.DstMAC.String()
+		case layers.LayerTypeIPv4:
+			ipv4Layer := packet.Layer(layers.LayerTypeIPv4)
+			ip, _ := ipv4Layer.(*layers.IPv4)
+			s.Source = ip.SrcIP.String()
+			s.Destination = ip.DstIP.String()
+		case layers.LayerTypeIPv6:
+			ipv6Layer := packet.Layer(layers.LayerTypeIPv6)
+			ip, _ := ipv6Layer.(*layers.IPv6)
+			s.Source = ip.SrcIP.String()
+			s.Destination = ip.DstIP.String()
+			s.Protocol = ip.NextHeader.String()
 		}
 	}
-	return packetData
+
+}
+
+// 待优化
+func (s *SniffPacket) parseShowInfo(packet gopacket.Packet, allLayers []gopacket.Layer) {
+	for i := len(allLayers) - 1; i >= 0; i-- {
+		if allLayers[i].LayerType().String() == "Payload" {
+			applicationLayer := packet.ApplicationLayer()
+			if applicationLayer != nil {
+				if checkHttp(packet) {
+					s.Info = GetDetailInfo(packet, "application")
+					return
+				}
+			}
+		}
+		if allLayers[i].LayerType().String() == "TCP" || allLayers[i].LayerType().String() == "UDP" {
+			s.Info = GetDetailInfo(packet, "transport")
+			return
+		}
+		idx := strings.Index(allLayers[i].LayerType().String(), "IP")
+		if idx >= 0 {
+			s.Info = GetDetailInfo(packet, "network")
+			return
+		}
+	}
+	s.Info = GetDetailInfo(packet, "link")
+}
+
+func checkHttp(packet gopacket.Packet) bool {
+	applicationLayer := packet.ApplicationLayer()
+	if applicationLayer != nil {
+		if strings.Contains(string(applicationLayer.Payload()), "HTTP") {
+			return true
+			// packetData.Info = GetDetailInfo(packet, "application")
+		}
+	}
+	return false
 }
 
 func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
@@ -221,8 +244,9 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 	// application 应用层
 	var detailInfo DetailPacketInfo
 	detailInfo.Size = strconv.Itoa(packet.Metadata().CaptureInfo.Length)
-	detailInfo.BinaryHex = BytesToHex(packet.Data())
-	detailInfo.AsciiText = BytesToAscii(packet.Data())
+	detailInfo.Dump = GetFullPacketData(packet.Dump())
+	// fmt.Println(packet.Dump())
+	// fmt.Println(l)
 	if layer == "link" {
 		ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
 		ethernetPacket, _ := ethernetLayer.(*layers.Ethernet)
@@ -269,6 +293,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			detailInfo.DestinationIP = ip.DstIP.String()
 			// detailInfo.Size = strconv.FormatUint(uint64(ip.Length), 10)
 			// 添加IPv6头相关信息
+			detailInfo.Detail += "Type: " + packet.Layers()[len(packet.Layers())-1].LayerType().String() + "\n"
 			detailInfo.Detail += "TrafficClass: " + strconv.FormatUint(uint64(ip.TrafficClass), 10) + "\n"
 			detailInfo.Detail += "FlowLabel: " + strconv.FormatUint(uint64(ip.FlowLabel), 10) + "\n"
 			detailInfo.Detail += "HopLimit: " + strconv.FormatUint(uint64(ip.Length), 10) + "\n"
@@ -326,8 +351,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 			detailInfo.DestinationPort = udp.DstPort.String()
 			// detailInfo.Size = "Data Length:  " + strconv.FormatUint(uint64(udp.Length), 10)
 			detailInfo.Detail += "Checksum:  " + strconv.FormatUint(uint64(udp.Checksum), 10) + "\n"
-			detailInfo.Detail += "Payload:  " + string(udp.Payload) + "\n"
-			// fmt.Println(string(udp.Payload))
+
 		}
 		return detailInfo
 	}
@@ -340,25 +364,11 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 		detailInfo.DestinationMac = linkflow.Dst().String()
 		detailInfo.SourceIP = netflow.Src().String()
 		detailInfo.DestinationIP = netflow.Dst().String()
-		// tcpLayer := packet.Layer(layers.LayerTypeTCP)
-		// tcp, _ := tcpLayer.(*layers.TCP)
-		// detailInfo.SourcePort = tcp.SrcPort.String()
-		// detailInfo.DestinationPort = tcp.DstPort.String()
 
 		applicationLayer := packet.ApplicationLayer()
 		// reg := regexp.MustCompile(`(?s)(GET|POST) (.*?) HTTP.*Host: (.*?)\n`)
 		payload := string(applicationLayer.Payload())
 		detailInfo.Detail += payload
-		// fmt.Println(payload)
-		// result := reg.FindStringSubmatch(payload)
-		// if len(result) == 4 {
-		// 	strings.TrimSpace(result[2])
-		// 	url := "http://" + strings.TrimSpace(result[3]) + strings.TrimSpace(result[2])
-		// 	detailInfo.Detail += "url:  " + url + "\n"
-		// 	detailInfo.Detail += "host:  " + result[3] + "\n"
-		// 	// fmt.Println("url:", url)
-		// 	// fmt.Println("host:", result[3])
-		// }
 	}
 	return detailInfo
 }
