@@ -38,16 +38,16 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		packet := packDetailData[id-1]
 		info := packet.Info
 		var showInfo string
-		showInfo += "Protocol:  " + packet.Protocol + "\n"
-		showInfo += "Source MAC address:  " + info.SourceMac + "\n"
-		showInfo += "Destination MAC address:  " + info.DestinationMac + "\n"
+		showInfo += "Protocol: " + packet.Protocol + "\n"
+		showInfo += "Source MAC address: " + info.SourceMac + "\n"
+		showInfo += "Destination MAC address: " + info.DestinationMac + "\n"
 		if info.SourceIP != "" && info.DestinationIP != "" {
-			showInfo += "Source IP address:  " + info.SourceIP + "\n"
-			showInfo += "Destination IP address:  " + info.DestinationIP + "\n"
+			showInfo += "Source IP address: " + info.SourceIP + "\n"
+			showInfo += "Destination IP address: " + info.DestinationIP + "\n"
 		}
 		if info.SourcePort != "" && info.DestinationPort != "" {
-			showInfo += "Source Port:  " + info.SourcePort + "\n"
-			showInfo += "Destination Port:  " + info.DestinationPort + "\n"
+			showInfo += "Source Port: " + info.SourcePort + "\n"
+			showInfo += "Destination Port: " + info.DestinationPort + "\n"
 		}
 		showInfo += "Data length:  " + info.Size + " Bytes \n"
 		showInfo += "Details:  \n" + info.Detail
@@ -90,14 +90,14 @@ func CreateNewListenWindow(myApp fyne.App, listenChannel chan sniffer.SniffPacke
 		stopChannel <- 3
 	})
 	listenWindow.SetContent(container)
-	listenWindow.Resize(fyne.NewSize(1000, 600))
+	listenWindow.Resize(fyne.NewSize(1100, 600))
 	listenWindow.Show()
-	str := fmt.Sprintf("%-5s%-30s%-30s%-30s%-10s", "No.", "Time", "Source", "Destination", "Protocol")
+	str := fmt.Sprintf("%-5s%-30s%-40s%-40s%-10s", "No.", "Time", "Source", "Destination", "Protocol")
 	listData.Append(str)
 	for packet := range listenChannel {
 		No := len(packDetailData) + 1
 		packDetailData = append(packDetailData, packet)
-		str := fmt.Sprintf("%-5d%-30s%-30s%-30s%-10s", No, packet.Time, packet.Source, packet.Destination, packet.Protocol)
+		str := fmt.Sprintf("%-5d%-30s%-40s%-40s%-10s", No, packet.Time, packet.Source, packet.Destination, packet.Protocol)
 		// str := "Time\t\t" + packet.Source + "\t\t" + packet.Destination + "\t\t" + packet.Protocol
 		// fmt.Println("recv packet")
 		listData.Append(str)

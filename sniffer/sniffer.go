@@ -91,7 +91,7 @@ func CheckBPFSyntax(device string, filter string) bool {
 		log.Fatal(err)
 	}
 	defer handle.Close()
-	_, err := handle.CompileBPFFilter(filter)
+	err := handle.SetBPFFilter(filter)
 	return err == nil
 }
 func Sniff(name string, ch chan SniffPacket, stop chan int, filter string) {
@@ -170,10 +170,14 @@ func (s *SniffPacket) parseTime(packet gopacket.Packet) {
 
 func (s *SniffPacket) parseProtocol(packet gopacket.Packet, allLayers []gopacket.Layer) {
 	str := allLayers[len(allLayers)-1].LayerType().String()
+	fmt.Println(str)
 	// 当数据包有Payload时，检查是否为应用层
 	if str == "Payload" {
-		if checkHttp(packet) {
+		condition := checkApplication(packet)
+		if condition == 1 {
 			s.Protocol = "HTTP"
+		} else if condition == 2 {
+			s.Protocol = "HTTPS"
 		} else {
 			s.Protocol = allLayers[len(allLayers)-2].LayerType().String()
 		}
@@ -214,7 +218,7 @@ func (s *SniffPacket) parseShowInfo(packet gopacket.Packet, allLayers []gopacket
 		if allLayers[i].LayerType().String() == "Payload" {
 			applicationLayer := packet.ApplicationLayer()
 			if applicationLayer != nil {
-				if checkHttp(packet) {
+				if checkApplication(packet) == 1 {
 					s.Info = GetDetailInfo(packet, "application")
 					return
 				}
@@ -233,15 +237,24 @@ func (s *SniffPacket) parseShowInfo(packet gopacket.Packet, allLayers []gopacket
 	s.Info = GetDetailInfo(packet, "link")
 }
 
-func checkHttp(packet gopacket.Packet) bool {
+// 可拓展
+func checkApplication(packet gopacket.Packet) int {
 	applicationLayer := packet.ApplicationLayer()
 	if applicationLayer != nil {
-		if strings.Contains(string(applicationLayer.Payload()), "HTTP") {
-			return true
+
+		transFlow := packet.TransportLayer().TransportFlow()
+		src, dst := transFlow.Endpoints()
+
+		if strings.Contains(string(applicationLayer.Payload()), "HTTP") || src.String() == "80" || dst.String() == "80" {
+			return 1
 			// packetData.Info = GetDetailInfo(packet, "application")
 		}
+		if dst.String() == "443" || src.String() == "443" {
+			return 2
+		}
+
 	}
-	return false
+	return 3
 }
 
 func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
@@ -345,7 +358,7 @@ func GetDetailInfo(packet gopacket.Packet, layer string) DetailPacketInfo {
 				if v {
 					flag = "1"
 				}
-				detailInfo.Detail += fmt.Sprintf("%s:  %s ", k, flag)
+				detailInfo.Detail += fmt.Sprintf("%s:%s ", k, flag)
 			}
 			detailInfo.Detail += "\n"
 			detailInfo.Detail += "window size:  " + strconv.FormatUint(uint64(tcp.Window), 10) + "\n"
