@@ -94,6 +94,23 @@ func CheckBPFSyntax(device string, filter string) bool {
 	err := handle.SetBPFFilter(filter)
 	return err == nil
 }
+
+func ParsePcapFile(file string) []SniffPacket {
+	handle, err := pcap.OpenOffline(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer handle.Close()
+	var showList []SniffPacket
+	// 通过包迭代器遍历 .pcap 文件中的每个包
+	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+	for packet := range packetSource.Packets() {
+		p := parsePacket(packet)
+		showList = append(showList, p)
+	}
+	return showList
+}
+
 func Sniff(name string, ch chan SniffPacket, stop chan int, filter string) {
 
 	var saveList []gopacket.Packet
@@ -142,7 +159,7 @@ func recvpacket(device string, recv chan gopacket.Packet, stopRecv chan int, fil
 				recv <- packet
 			}
 		case <-stopRecv:
-			fmt.Println("stop recv packet")
+			log.Println("stop recv packet")
 			return
 		}
 	}
@@ -170,7 +187,7 @@ func (s *SniffPacket) parseTime(packet gopacket.Packet) {
 
 func (s *SniffPacket) parseProtocol(packet gopacket.Packet, allLayers []gopacket.Layer) {
 	str := allLayers[len(allLayers)-1].LayerType().String()
-	fmt.Println(str)
+	// fmt.Println(str)
 	// 当数据包有Payload时，检查是否为应用层
 	if str == "Payload" {
 		condition := checkApplication(packet)
